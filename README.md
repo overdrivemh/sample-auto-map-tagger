@@ -1,63 +1,64 @@
 # MAP 2.0 Auto-Tagger
 
-> **Disclaimer:** This is sample code for non-production usage. You should work with your security and legal teams to meet your organizational security, regulatory, and compliance requirements before deployment. You are responsible for testing, securing, and optimizing this solution as appropriate for production use based on your specific quality control practices and standards. Deploying this solution may incur AWS charges for Lambda, EventBridge, CloudWatch, SSM Parameter Store, SQS, and SNS. Under the [AWS Shared Responsibility Model](https://aws.amazon.com/compliance/shared-responsibility-model/), you are responsible for security decisions in the cloud, including the IAM roles and policies deployed by this solution.
+> **Sample code / non-production reference.** Validate security, legal, compliance, IAM, cost, account topology and operational requirements before deployment. You are responsible for testing and hardening the solution for your environment.
 
-**Automatic AWS resource tagging for MAP 2.0 credit tracking.**
+Automatic AWS resource tagging for MAP 2.0 credit tracking. The solution observes resource-creation activity through AWS-native events/queues and applies the `map-migrated` tag to supported resources, while keeping scope, drift handling and deployment controls explicit.
 
-Customers miss MAP 2.0 credits because engineers forget to tag resources, scripts create resources without tags, and dependent resources (EBS volumes, snapshots, read replicas) go untagged. This solution catches resource creation events via CloudTrail → EventBridge → SQS → Lambda and applies the `map-migrated` tag automatically — typically within 60–90 seconds, across 154 resource types.
+## Current repository posture — 2026-09-04
 
----
+Current observed `main` before this README refresh: `41c1cd645f09548575609dae7d938cdcf90219fb`.
 
-## Quick Start
+The latest accepted change restored the AI-DLC brownfield artifacts as an explicitly dated **2026-07-07 snapshot**. It made no functional runtime change; the recorded validation at that change was:
 
-### 1. Generate deploy.sh
+- build: PASS;
+- YAML build: PASS;
+- unit tests: **151 PASS**;
+- generated-artifact verification: PASS.
 
-Open `configurator.html` in a browser, fill in your MAP Engagement ID and details, click **Generate & Download**.
+The AI-DLC snapshot is historical/reverse-engineering evidence. Current engineering rules live in the maintained source/docs, not in the snapshot merely because it is present.
 
-### 2. Run deploy.sh
+## What it solves
+
+MAP credits can be missed when resources are created without the required migration tag or when dependent resources are created outside the original provisioning path. The Auto-Tagger provides a central AWS-native tagging path for supported resource types and records scope/configuration under the deployed solution.
+
+The current source catalogue covers **154 resource types**. Always check [`docs/COVERAGE.md`](docs/COVERAGE.md) for the exact current matrix and exceptions.
+
+## Quick start
+
+### 1. Generate deployment script
+
+Open `configurator.html`, enter the MAP engagement/configuration values and generate `deploy.sh`.
+
+### 2. Review the script
+
+Before execution, review:
+
+- account/region scope;
+- IAM roles/policies;
+- EventBridge/CloudTrail/SQS/Lambda behavior;
+- alerting and rollback/removal behavior;
+- MAP engagement/tag value;
+- expected AWS charges.
+
+### 3. Deploy
 
 ```bash
-# AWS CloudShell (recommended) — upload deploy.sh, then:
 bash deploy.sh
-
-# Or local AWS CLI with credentials configured:
-bash deploy.sh
 ```
 
-One file. One command. Done.
+AWS CloudShell is the simplest supported operator path when the required permissions are present.
 
-### 3. Verify
+### 4. Verify
 
-```bash
-aws s3 mb s3://test-map-$(date +%s) && sleep 90
-aws s3api get-bucket-tagging --bucket test-map-XXXXX
-# Expected: {"TagSet": [{"Key": "map-migrated", "Value": "mig1234567890"}]}
-```
+Create an admitted test resource and confirm the expected `map-migrated` tag after the event-processing interval. Do not use a production-critical resource as the first proof.
 
----
+## Terraform / IaC coexistence
 
-## Day-2: Add or Remove Accounts
+Terraform/provider tag reconciliation can remove tags applied out of band. If Terraform owns the resource, either declare `map-migrated` in IaC or configure `ignore_tags` for that key as appropriate.
 
-Run in AWS CloudShell from the management account. List **all** accounts that should be in scope (this is a full replacement):
-
-```bash
-aws cloudformation update-stack-set --stack-set-name map-auto-tagger-mig<MPE_ID> --use-previous-template --parameters 'ParameterKey=ScopedAccountIds,ParameterValue="[\"111111111111\",\"222222222222\"]"' 'ParameterKey=MpeId,UsePreviousValue=true' 'ParameterKey=AgreementStartDate,UsePreviousValue=true' 'ParameterKey=AgreementEndDate,UsePreviousValue=true' 'ParameterKey=ScopeMode,UsePreviousValue=true' 'ParameterKey=ScopedVpcIds,UsePreviousValue=true' 'ParameterKey=TagNonVpcServices,UsePreviousValue=true' 'ParameterKey=AlertEmail,UsePreviousValue=true' --capabilities CAPABILITY_NAMED_IAM --region <REGION>
-```
-
-See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for single-account deployments and detailed guidance.
-
----
-
-## Using Terraform or Other IaC?
-
-Terraform providers configured with `default_tags`/`tags_all` **silently remove
-the `map-migrated` tag on the next `terraform apply`** — the provider reconciles
-each managed resource's tags to what the IaC declares, stripping tags applied
-out-of-band by this tool. (CloudFormation generally leaves out-of-band resource
-tags alone.) Prevent it with one of:
+Example:
 
 ```hcl
-# Coexistence one-liner — Terraform ignores the tagger's tag entirely:
 provider "aws" {
   ignore_tags {
     keys = ["map-migrated"]
@@ -65,131 +66,57 @@ provider "aws" {
 }
 ```
 
-…or declare `map-migrated = "<MPE_ID>"` in the IaC itself (e.g. in
-`default_tags`), making the IaC the tag's owner. Organizations can additionally
-validate the tag at plan time with AWS Organizations Tag Policies.
+The solution's drift handling is alert-oriented; do not assume it will silently fight an IaC system and reapply a removed tag forever.
 
-If the tag is removed out-of-band anyway, the deployed tagger detects it and
-fires the `TagDriftAlarm` CloudWatch alarm (via the SNS alert topic) with the
-fix above and a query listing the affected resources — see the
-[drift-alarm runbook](docs/INSTRUCTIONS.md#responding-to-a-tag-drift-alarm-map-auto-tagger-tag-drift-mpe_id).
-Detection is alert-only: the tagger **never re-tags automatically** (see
-[LIMITATIONS.md](docs/LIMITATIONS.md#iac-terraform-tag-drift--detection-is-best-effort-and-never-auto-restores)).
+See [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) and the drift runbook in [`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md).
 
----
+## Day-2 operations
 
-## Removing a Deployment
+Use the documented update/remove paths rather than hand-editing deployed resources:
 
-1. Open `configurator.html` → **Delete existing deployment** tab
-2. Select region; by default every `map-auto-tagger-mig*` stack/stackset is removed. Optionally scope to specific MPE(s).
-3. Type `DELETE` to confirm → **Generate delete.sh** → download and run:
+- account/scope changes: [`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md)
+- service coverage: [`docs/COVERAGE.md`](docs/COVERAGE.md)
+- upgrade/redeploy decisions: [`CHANGELOG.md`](CHANGELOG.md)
+- design invariants: [`docs/DESIGN-INVARIANTS.md`](docs/DESIGN-INVARIANTS.md)
+- known limitations: [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md)
 
-```bash
-bash delete-all.sh   # or delete-<mpe>.sh if scoped
-```
-
-The S3 staging bucket is deleted only when no other MAP Auto-Tagger deployments remain in the account. `map-migrated` tags on already-tagged AWS resources are preserved (MAP credits remain intact).
-
----
-
-## Upgrading to a New Version
-
-Each release note states whether the update is **upgrade-safe** or requires a **full redeploy**.
-
-### Option A: Upgrade (service coverage updates — no re-entry needed)
-
-Use when the release note says **"Upgrade-safe"** (most releases — new services, bug fixes, no new parameters).
-
-1. Download the latest `configurator.html`
-2. Select **"Update to latest template version"**
-3. Enter your **region** and **MPE ID** only
-4. Run the generated `upgrade.sh`
-
-Your scope configuration (accounts, VPCs, dates) is preserved automatically. A change-set preview shows exactly what will change before applying.
-
-### Option B: Re-run deploy.sh (also safe for any release)
-
-Re-generate `deploy.sh` from the configurator with the same settings you used originally, then run it. The stack updates in-place.
-
-To retrieve your current settings via CloudShell:
-
-```bash
-aws ssm get-parameter --name /auto-map-tagger/<MPE_ID>/config --query Parameter.Value --output text --region <REGION>
-```
-
-This returns your MPE ID, dates, scope mode, account IDs, and VPC IDs — everything you need to fill in the configurator.
-
-### Option C: Full redeploy (required when release notes say so)
-
-Use when the release note says **"Full redeploy required"** (rare — only when new configuration parameters are introduced).
-
-```bash
-aws cloudformation delete-stack --stack-name map-auto-tagger-mig<MPE_ID> --region <REGION>
-aws cloudformation wait stack-delete-complete --stack-name map-auto-tagger-mig<MPE_ID> --region <REGION>
-bash deploy.sh
-```
-
-Existing `map-migrated` tags on resources are preserved — MAP credits stay intact. Enable backfill to catch resources created during the brief gap (~2-5 minutes).
-
----
-
-## Components
-
-| File | Description |
-|------|-------------|
-| `configurator.html` | Self-service UI (built output). Generates `deploy.sh` for new deployments and `delete.sh` for clean removal. Day-2 account scope changes are done via CloudShell (see INSTRUCTIONS.md). |
-| `src/` | Modular source files — CSS, HTML skeleton, JS modules, i18n, per-service definitions, Lambda Python |
-| `scripts/build.js` | Build script — assembles `configurator.html` from `src/` |
-| `CHANGELOG.md` | Version history |
-
----
+Existing `map-migrated` tags are deliberately treated as migration-credit data; removal of the deployment should not be confused with removal of already-applied tags.
 
 ## Development
 
 ```bash
-npm install              # install dependencies (first time)
-npm run build            # assemble configurator.html from src/
-npm test                 # run unit tests (vitest)
-npm run verify           # sanity-check the built output
-npm run sync-rules       # sync AI agent rules (.kiro/steering -> .claude/rules)
+npm install
+npm run build
+npm test
+npm run verify
+npm run sync-rules
 ```
 
-**AI agent rules:** Engineering rules for AI coding agents live in `.kiro/steering/` (Kiro) and are mirrored to `.claude/rules/` (Claude Code). Edit the `.kiro/steering/` copy, then run `npm run sync-rules` and commit both. See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for details.
+Source lives under `src/`; `configurator.html` is a built output. Edit source, rebuild and verify rather than hand-editing generated output.
 
-Source files live in `src/`. Edit there, run `npm run build`, open `configurator.html` to test.
+AI-agent engineering rules live under `.kiro/steering/` and are mirrored to `.claude/rules/` through `npm run sync-rules`.
 
-**Adding a new AWS service:** drop a `.js` file in `src/js/services/` following the format in [DEVELOPMENT.md](docs/DEVELOPMENT.md), then `npm run build`.
+## Architecture / components
 
-For the full source structure, build process, and extension guide, see [DEVELOPMENT.md](docs/DEVELOPMENT.md).
+The solution uses AWS-managed services including CloudTrail/EventBridge, SQS, Lambda, SSM Parameter Store, CloudWatch and SNS. Exact resources depend on configuration and version.
 
----
-
-## Cost
-
-| Component | Monthly Cost |
-|-----------|-------------|
-| Lambda — Auto-Tagger (100–1,000 invocations/day) | $0.10 – $2.00 |
-| Lambda — Preflight (1 at deploy) | < $0.01 |
-| EventBridge + SQS + SSM | $0.01 – $0.20 |
-| **Total per account** | **< $2/month** |
-
----
+The discovery/tagging path is intended to remain scoped and least-privilege. AWS Shared Responsibility still applies: deploying sample code does not transfer your IAM, security, compliance or operational responsibility.
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [OVERVIEW.md](docs/OVERVIEW.md) | How it works — architecture, deployment, auto-deployment, SSM scope, cost |
-| [INSTRUCTIONS.md](docs/INSTRUCTIONS.md) | Deployment steps, day-2 operations, monitoring, upgrade path, FAQ |
-| [COVERAGE.md](docs/COVERAGE.md) | Supported services (154 resource types) and E2E test coverage matrix |
-| [LIMITATIONS.md](docs/LIMITATIONS.md) | Hard constraints — management account, SCPs, latency, upgrade gotcha |
-| [DESIGN-INVARIANTS.md](docs/DESIGN-INVARIANTS.md) | Rules the solution must never violate, and the incident behind each one |
-| [MAP_TAGGING_GAP_ANALYSIS.md](docs/MAP_TAGGING_GAP_ANALYSIS.md) | What can't be tagged and why (AWS API limitations, customer-side config) |
-| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
-| [aidlc-docs/](aidlc-docs/) | AI-DLC brownfield pass over this codebase — dated snapshot, 2026-07-07 |
+- [`docs/OVERVIEW.md`](docs/OVERVIEW.md) — architecture and operating model
+- [`docs/INSTRUCTIONS.md`](docs/INSTRUCTIONS.md) — deployment/day-2/runbooks
+- [`docs/COVERAGE.md`](docs/COVERAGE.md) — exact service/resource coverage
+- [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) — hard constraints
+- [`docs/DESIGN-INVARIANTS.md`](docs/DESIGN-INVARIANTS.md) — rules the solution must preserve
+- [`docs/MAP_TAGGING_GAP_ANALYSIS.md`](docs/MAP_TAGGING_GAP_ANALYSIS.md) — AWS tagging gaps
+- [`CHANGELOG.md`](CHANGELOG.md) — release history
+- [`aidlc-docs/`](aidlc-docs/) — dated 2026-07-07 brownfield snapshot, not maintained current authority
+
+## Licence
+
+MIT-0 — see [`LICENSE`](LICENSE).
 
 ---
 
-## License
-
-This project is licensed under the [MIT-0](LICENSE) license.
+Cross-repository front-door currentness coordination: `overdrivemh/Mocc#6895`.
