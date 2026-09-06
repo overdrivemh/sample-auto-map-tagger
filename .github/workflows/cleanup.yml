@@ -15,22 +15,38 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
 
       - run: pip install boto3
 
+      # Each account transition must fail closed. This job intentionally assumes
+      # several roles in sequence, so stale credentials from the previous account
+      # must be removed before every new OIDC role assumption. The explicit STS
+      # identity check prevents any destructive block from running in the wrong
+      # account even if credential behavior changes later.
+
       # ── Single account ────────────────────────────────────────────────────
 
       - name: Assume role — single account
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_SINGLE_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — single account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_SINGLE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       # Guard: if any map-auto-tagger-e2e-pr* stack in this account is younger
       # than the in-flight window or actively IN_PROGRESS, skip the sweep to
@@ -109,11 +125,19 @@ jobs:
       # ── Management account (StackSets live here) ──────────────────────────
 
       - name: Assume role — management account
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_MGMT_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — management account
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_MGMT_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       - name: Guard — detect in-flight E2E (management account)
         id: guard_mgmt
@@ -176,11 +200,19 @@ jobs:
       # ── Linked account 1 ──────────────────────────────────────────────────
 
       - name: Assume role — linked account 1
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_LINKED1_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — linked account 1
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_LINKED1_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       - name: Guard — detect in-flight E2E (linked account 1)
         id: guard_l1
@@ -215,11 +247,19 @@ jobs:
       # ── Linked account 2 ──────────────────────────────────────────────────
 
       - name: Assume role — linked account 2
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_LINKED2_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — linked account 2
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_LINKED2_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       - name: Guard — detect in-flight E2E (linked account 2)
         id: guard_l2
@@ -254,11 +294,19 @@ jobs:
       # ── Linked account 3 ──────────────────────────────────────────────────
 
       - name: Assume role — linked account 3
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_LINKED3_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — linked account 3
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_LINKED3_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       - name: Guard — detect in-flight E2E (linked account 3)
         id: guard_l3
@@ -293,11 +341,19 @@ jobs:
       # ── Linked account 4 ──────────────────────────────────────────────────
 
       - name: Assume role — linked account 4
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_LINKED4_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — linked account 4
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_LINKED4_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       - name: Guard — detect in-flight E2E (linked account 4)
         id: guard_l4
@@ -332,11 +388,19 @@ jobs:
       # ── Linked account 5 ──────────────────────────────────────────────────
 
       - name: Assume role — linked account 5
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_LINKED5_ACCOUNT_ID }}:role/GitHubActionsE2ERole
           aws-region: ap-northeast-2
-        continue-on-error: true
+          unset-current-credentials: true
+
+      - name: Verify AWS identity — linked account 5
+        env:
+          EXPECTED_ACCOUNT_ID: ${{ secrets.AWS_LINKED5_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          actual="$(aws sts get-caller-identity --query Account --output text)"
+          test "$actual" = "$EXPECTED_ACCOUNT_ID"
 
       - name: Guard — detect in-flight E2E (linked account 5)
         id: guard_l5
